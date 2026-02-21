@@ -1,8 +1,15 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
+// Default to the local Next.js API proxy so HttpOnly auth cookies are automatically included.
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? '/api').replace(/\/$/, '');
+
+const buildUrl = (path: string) => {
+    if (/^https?:\/\//i.test(path)) return path; // Allow absolute URLs when explicitly provided
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return `${BASE_URL}${normalized}`;
+};
 
 /** Thin fetch wrapper — passes session cookie, throws on non-2xx */
 async function apiFetch<T>(path: string): Promise<T> {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(buildUrl(path), {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
     });
@@ -38,7 +45,11 @@ export interface FuelTrendEntry {
 
 export interface VehicleROIEntry {
     vehicleId: string;
-    roi: number;
+    licensePlate: string;
+    revenue: number;
+    expenses: number;
+    netROI: number;
+    roiPercent: number;
 }
 
 // ─── Fetcher functions (used by SWR) ─────────────────────────────────────────

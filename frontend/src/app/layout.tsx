@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Sidebar from "@/components/Sidebar";
+import { ClientLayout } from "@/components/ClientLayout";
+import { SocketProvider } from "@/providers/SocketProvider";
+import { Toaster } from 'react-hot-toast';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,10 +30,19 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white h-screen overflow-hidden flex`}
       >
-        <Sidebar />
-        <main className="flex-1 h-full overflow-y-auto bg-neutral-900 shadow-inner rounded-l-3xl border-l border-neutral-800 shadow-2xl relative z-10">
-          <div className="max-w-7xl mx-auto p-4 pt-16 md:p-8">{children}</div>
-        </main>
+        <SocketProvider>
+          <ClientLayout>{children}</ClientLayout>
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: '#171717',
+                color: '#fff',
+                border: '1px solid #262626',
+              }
+            }}
+          />
+        </SocketProvider>
       </body>
     </html>
   );

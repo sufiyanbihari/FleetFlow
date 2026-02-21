@@ -72,7 +72,8 @@ function ChartSkeleton({ height = 260 }: { height?: number }) {
 // ─── Tooltip styling (shared) ──────────────────────────────────────────────
 const tooltipStyle = {
     contentStyle: { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 },
-    labelStyle: { color: '#a1a1aa' },
+    labelStyle: { color: '#ffffff' },
+    itemStyle: { color: '#ffffff' },
 };
 
 // ─── Page ──────────────────────────────────────────────────────────────────
@@ -103,8 +104,8 @@ export default function AnalyticsPage() {
     );
 
     const roiChartData = fleetROI.slice(0, 10).map((v) => ({
-        name: v.vehicleId.slice(0, 8) + '…',
-        roi: v.roi,
+        name: (v.licensePlate || v.vehicleId).slice(0, 10) + '…',
+        roi: v.roiPercent ?? 0,
     }));
 
     return (
@@ -118,44 +119,46 @@ export default function AnalyticsPage() {
             </div>
 
             {/* ── KPI Cards ───────────────────────────────────────────────────── */}
-            {kpiErr ? (
-                <div className="glass-card p-5 text-center text-red-400 text-sm">
-                    ⚠️ Dashboard KPIs unavailable — {String(kpiErr.message)}
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {kpiLoading ? (
-                        Array.from({ length: 4 }).map((_, i) => (
-                            <div key={i} className="glass-card p-6 animate-pulse h-28 rounded-2xl bg-neutral-800/40" />
-                        ))
-                    ) : (
-                        <>
-                            <StatCard
-                                label="Fleet Utilization"
-                                value={kpis?.utilizationRate ?? 0}
-                                unit="%"
-                                sub={`${kpis?.vehiclesOnTrip ?? 0} of ${kpis?.activeFleetCount ?? 0} on trip`}
-                            />
-                            <StatCard
-                                label="Trips Today"
-                                value={kpis?.tripsToday ?? 0}
-                                sub={`${kpis?.availableVehicles ?? 0} vehicles available`}
-                            />
-                            <StatCard
-                                label="Fleet Efficiency"
-                                value={kpis?.fleetEfficiencyKmPerLiter ?? '—'}
-                                unit={kpis?.fleetEfficiencyKmPerLiter != null ? 'km/L' : ''}
-                                sub="Last 30 days"
-                            />
-                            <StatCard
-                                label="Drivers On Duty"
-                                value={kpis?.driversOnDuty ?? 0}
-                                sub={`As of ${kpis ? new Date(kpis.calculatedAt).toLocaleTimeString() : '—'}`}
-                            />
-                        </>
-                    )}
-                </div>
-            )}
+            <ChartErrorBoundary title="Dashboard KPIs">
+                {kpiErr ? (
+                    <div className="glass-card p-5 text-center text-red-400 text-sm">
+                        ⚠️ Dashboard KPIs unavailable — {String(kpiErr.message)}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {kpiLoading ? (
+                            Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="glass-card p-6 animate-pulse h-28 rounded-2xl bg-neutral-800/40" />
+                            ))
+                        ) : (
+                            <>
+                                <StatCard
+                                    label="Fleet Utilization"
+                                    value={kpis?.utilizationRate ?? 0}
+                                    unit="%"
+                                    sub={`${kpis?.vehiclesOnTrip ?? 0} of ${kpis?.activeFleetCount ?? 0} on trip`}
+                                />
+                                <StatCard
+                                    label="Trips Today"
+                                    value={kpis?.tripsToday ?? 0}
+                                    sub={`${kpis?.availableVehicles ?? 0} vehicles available`}
+                                />
+                                <StatCard
+                                    label="Fleet Efficiency"
+                                    value={kpis?.fleetEfficiencyKmPerLiter ?? '—'}
+                                    unit={kpis?.fleetEfficiencyKmPerLiter != null ? 'km/L' : ''}
+                                    sub="Last 30 days"
+                                />
+                                <StatCard
+                                    label="Drivers On Duty"
+                                    value={kpis?.driversOnDuty ?? 0}
+                                    sub={`As of ${kpis ? new Date(kpis.calculatedAt).toLocaleTimeString() : '—'}`}
+                                />
+                            </>
+                        )}
+                    </div>
+                )}
+            </ChartErrorBoundary>
 
             {/* ── Fuel Trend ─────────────────────────────────────────────────── */}
             <ChartErrorBoundary title="Fuel Consumption Trend">
@@ -171,7 +174,7 @@ export default function AnalyticsPage() {
                     ) : fuelTrend.length === 0 ? (
                         <p className="text-xs text-neutral-500 text-center py-10">No fuel data in the last 30 days.</p>
                     ) : (
-                        <ResponsiveContainer width="100%" height={260}>
+                        <ResponsiveContainer width="100%" height={260} minHeight={260}>
                             <LineChart data={fuelTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#71717a' }} interval="preserveStartEnd" />
@@ -207,7 +210,7 @@ export default function AnalyticsPage() {
                     ) : tripsPerDay.length === 0 ? (
                         <p className="text-xs text-neutral-500 text-center py-10">No completed trips in the last 30 days.</p>
                     ) : (
-                        <ResponsiveContainer width="100%" height={260}>
+                        <ResponsiveContainer width="100%" height={260} minHeight={260}>
                             <BarChart data={tripsPerDay} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#71717a' }} interval="preserveStartEnd" />
@@ -235,7 +238,7 @@ export default function AnalyticsPage() {
                     ) : roiChartData.length === 0 ? (
                         <p className="text-xs text-neutral-500 text-center py-10">No ROI data available yet.</p>
                     ) : (
-                        <ResponsiveContainer width="100%" height={300}>
+                        <ResponsiveContainer width="100%" height={300} minHeight={300}>
                             <BarChart
                                 data={roiChartData}
                                 layout="vertical"

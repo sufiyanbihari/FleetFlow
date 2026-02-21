@@ -11,6 +11,7 @@ import { RedisService } from '../../redis/redis.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { CompleteTripDto } from './dto/complete-trip.dto';
+import { TripStatusUpdate } from './dto/update-trip-status.dto';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -22,6 +23,29 @@ export class TripsService {
     private readonly redis: RedisService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  async listTrips() {
+    const trips = await this.prisma.trip.findMany({
+      include: {
+        driver: { select: { id: true, name: true, status: true, licenseExpiry: true } },
+        vehicle: { select: { id: true, licensePlate: true, model: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return trips.map((t) => ({
+      id: t.id,
+      driverId: t.driverId,
+      vehicleId: t.vehicleId,
+      status: t.status,
+      cargoWeight: t.cargoWeight,
+      origin: t.origin,
+      destination: t.destination,
+      createdAt: t.createdAt,
+      driver: t.driver ? { name: t.driver.name } : undefined,
+      vehicle: t.vehicle ? { licensePlate: t.vehicle.licensePlate, model: t.vehicle.model } : undefined,
+    }));
+  }
 
   async createTrip(dto: CreateTripDto) {
     const vehicleLockKey = `lock:vehicle:${dto.vehicleId}`;
@@ -309,5 +333,98 @@ export class TripsService {
       await this.redis.releaseLock(driverLockKey, driverLockToken);
       await this.redis.releaseLock(vehicleLockKey, vehicleLockToken);
     }
+  }
+
+  async updateStatus(id: string, status: TripStatusUpdate) {
+    const trip = await this.prisma.trip.findUnique({ where: { id } });
+    if (!trip) throw new NotFoundException('Trip not found');
+
+    if (status === TripStatusUpdate.CANCELLED) {
+      return this.cancelTrip(id);
+    }
+
+    if (status === TripStatusUpdate.COMPLETED) {
+      // Minimal completion (no odometer/revenue details provided by UI)
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const completed = await tx.trip.update({
+          where: { id },
+          data: {
+            status: 'COMPLETED',
+            completedAt: new Date(),
+            endOdometer: trip.endOdometer ?? trip.startOdometer ?? 0,
+            distanceKm:
+              trip.distanceKm ??
+              ((trip.endOdometer ?? trip.startOdometer ?? 0) -
+                (trip.startOdometer ?? 0)),
+          },
+        });
+
+        await tx.vehicle.update({
+          where: { id: trip.vehicleId },
+          data: { status: 'AVAILABLE' },
+        });
+
+        await tx.driver.update({
+          where: { id: trip.driverId },
+          data: { status: 'ON_DUTY' },
+        });
+
+        return completed;
+      });
+
+      await Promise.all([
+        this.redis.del('cache:v1:analytics:dashboard'),
+        this.redis.del('cache:v1:analytics:utilization'),
+        this.redis.del('cache:v1:analytics:trips-per-day'),
+        this.redis.del('cache:v1:analytics:fleet-roi'),
+        this.redis.del('cache:v1:analytics:fleet-efficiency'),
+      ]);
+
+      this.eventEmitter.emit('trip.completed', {
+        id: trip.id,
+        vehicleId: trip.vehicleId,
+        driverId: trip.driverId,
+        status: 'COMPLETED',
+        timestamp: new Date(),
+      });
+
+      return updated;
+    }
+
+    // Default: mark DISPATCHED without creating a new record
+    if (status === TripStatusUpdate.DISPATCHED) {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const dispatched = await tx.trip.update({
+          where: { id },
+          data: { status: 'DISPATCHED' },
+        });
+
+        await tx.vehicle.update({
+          where: { id: trip.vehicleId },
+          data: { status: 'ON_TRIP' },
+        });
+
+        await tx.driver.update({
+          where: { id: trip.driverId },
+          data: { status: 'ON_TRIP' },
+        });
+
+        return dispatched;
+      });
+
+      await this.redis.del('cache:v1:analytics:utilization');
+
+      this.eventEmitter.emit('trip.dispatched', {
+        id: trip.id,
+        vehicleId: trip.vehicleId,
+        driverId: trip.driverId,
+        status: 'DISPATCHED',
+        timestamp: new Date(),
+      });
+
+      return updated;
+    }
+
+    throw new BadRequestException('Unsupported status transition');
   }
 }

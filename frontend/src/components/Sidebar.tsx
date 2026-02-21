@@ -15,14 +15,20 @@ import {
     X,
 } from 'lucide-react';
 
-// ─── Role context ─────────────────────────────────────────────────────────────
-// Reads role from the JWT access_token cookie (decoded client-side for UX only).
-// Resolves from: 1) JWT cookie payload, 2) GET /auth/me, 3) null (unauthenticated)
-function useUserRole(): UserRole | null {
-    const [role, setRole] = useState<UserRole | null>(null);
+import useSWR from 'swr';
+import toast from 'react-hot-toast';
 
-    useEffect(() => {
-        // Try to decode the JWT cookie for instant role resolution (no network round-trip)
+// ─── Role context ─────────────────────────────────────────────────────────────
+// SWR fetcher for auth
+const authFetcher = (url: string) =>
+    fetch(url, { credentials: 'include' }).then((res) => res.json());
+
+// Reads role from the JWT access_token cookie (decoded client-side for UX only).
+// Resolves from: 1) JWT cookie payload, 2) GET /auth/me via SWR, 3) null (unauthenticated)
+function useUserRole(): UserRole | null {
+    // 1. Try to decode the JWT cookie for instant role resolution (no network round-trip)
+    const getInitialRole = (): UserRole | null => {
+        if (typeof document === 'undefined') return null;
         const cookieVal = document.cookie
             .split('; ')
             .find((c) => c.startsWith('access_token='))
@@ -34,26 +40,30 @@ function useUserRole(): UserRole | null {
                 const base64 = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
                 const payload = JSON.parse(atob(base64)) as { role?: string };
                 if (payload.role) {
-                    setRole(payload.role as UserRole);
-                    return;
+                    return payload.role as UserRole;
                 }
             } catch {
-                // fall through to API call
+                // Return null if malformed
+                return null;
             }
         }
+        return null;
+    };
 
-        // Fallback: call /auth/me (covers httpOnly cookie case)
-        fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/auth/me`, {
-            credentials: 'include',
-        })
-            .then((r) => r.json())
-            .then((data: { role?: string }) => {
-                if (data.role) setRole(data.role as UserRole);
-            })
-            .catch(() => setRole(null));
-    }, []);
+    const initialRole = getInitialRole();
 
-    return role;
+    // 2. Fetch /auth/me for authoritative role using SWR
+    const { data } = useSWR<{ role?: string }>(
+        `/api/auth/me`,
+        authFetcher,
+        {
+            fallbackData: initialRole ? { role: initialRole } : undefined,
+            revalidateOnFocus: true,
+            shouldRetryOnError: false, // Don't retry heavily if unauthenticated
+        }
+    );
+
+    return (data?.role as UserRole) || null;
 }
 
 // ─── Icon map ─────────────────────────────────────────────────────────────────
@@ -79,7 +89,7 @@ function NavLinks({ role, onNav }: { role: UserRole | null; onNav?: () => void }
                 Navigation
             </div>
             {MENU_ITEMS.map((item) => {
-                const hasAccess = checkAccess(role, item.minimumRole);
+                const hasAccess = checkAccess(role, item);
                 if (!hasAccess && role !== null) return null;
 
                 const isActive = pathname === item.path;
@@ -89,8 +99,8 @@ function NavLinks({ role, onNav }: { role: UserRole | null; onNav?: () => void }
                         href={item.path}
                         onClick={onNav}
                         className={`flex items-center px-4 py-3 rounded-lg transition-all duration-200 group ${isActive
-                                ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
-                                : 'text-neutral-400 hover:bg-neutral-800 hover:text-white border border-transparent'
+                            ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+                            : 'text-neutral-400 hover:bg-neutral-800 hover:text-white border border-transparent'
                             } ${role === null ? 'opacity-30 cursor-not-allowed pointer-events-none' : ''}`}
                     >
                         <div className={isActive ? 'text-blue-400' : 'group-hover:text-emerald-400 transition-colors'}>
@@ -105,16 +115,22 @@ function NavLinks({ role, onNav }: { role: UserRole | null; onNav?: () => void }
 }
 
 // ─── Sidebar footer ───────────────────────────────────────────────────────────
-function SidebarFooter({ role }: { role: UserRole | null }) {
+function SidebarFooter({ role, onLogout }: { role: UserRole | null; onLogout: () => Promise<void> }) {
     return (
         <div className="p-4 border-t border-neutral-800">
             <div className="px-4 py-3 bg-neutral-800/50 rounded-lg border border-neutral-700/50">
-                <div className="text-xs text-neutral-400 mb-1">
+                <div suppressHydrationWarning className="text-xs text-neutral-400 mb-1">
                     {role ? `Signed in as ${role}` : 'Authenticating...'}
                 </div>
                 <div className="text-[10px] text-neutral-500">
                     Authorization Matrix v3.0 · JWT-secured
                 </div>
+                <button
+                    onClick={onLogout}
+                    className="mt-3 w-full text-xs font-semibold text-red-300 hover:text-white bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md py-2 transition-colors"
+                >
+                    Logout
+                </button>
             </div>
         </div>
     );
@@ -138,18 +154,18 @@ function Brand() {
 }
 
 // ─── Desktop Sidebar ─────────────────────────────────────────────────────────
-function DesktopSidebar({ role }: { role: UserRole | null }) {
+function DesktopSidebar({ role, onLogout }: { role: UserRole | null; onLogout: () => Promise<void> }) {
     return (
         <aside className="hidden md:flex w-64 h-screen bg-neutral-900 border-r border-neutral-800 text-white flex-col flex-shrink-0">
             <Brand />
             <NavLinks role={role} />
-            <SidebarFooter role={role} />
+            <SidebarFooter role={role} onLogout={onLogout} />
         </aside>
     );
 }
 
 // ─── Mobile Drawer Sidebar ────────────────────────────────────────────────────
-function MobileDrawer({ role }: { role: UserRole | null }) {
+function MobileDrawer({ role, onLogout }: { role: UserRole | null; onLogout: () => Promise<void> }) {
     const [open, setOpen] = useState(false);
     const pathname = usePathname();
 
@@ -193,7 +209,7 @@ function MobileDrawer({ role }: { role: UserRole | null }) {
                     </button>
                 </div>
                 <NavLinks role={role} onNav={() => setOpen(false)} />
-                <SidebarFooter role={role} />
+                <SidebarFooter role={role} onLogout={onLogout} />
             </aside>
         </>
     );
@@ -202,10 +218,23 @@ function MobileDrawer({ role }: { role: UserRole | null }) {
 // ─── Public export ─────────────────────────────────────────────────────────────
 export default function Sidebar() {
     const role = useUserRole();
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'include',
+            });
+            toast.success('Logged out');
+        } catch (err: any) {
+            toast.error(err.message || 'Logout failed');
+        } finally {
+            window.location.href = '/login';
+        }
+    };
     return (
         <>
-            <DesktopSidebar role={role} />
-            <MobileDrawer role={role} />
+            <DesktopSidebar role={role} onLogout={handleLogout} />
+            <MobileDrawer role={role} onLogout={handleLogout} />
         </>
     );
 }

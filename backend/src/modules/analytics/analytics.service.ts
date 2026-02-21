@@ -33,7 +33,11 @@ export interface FuelTrendEntry {
 
 export interface VehicleROISummaryEntry {
   vehicleId: string;
-  roi: number;
+  licensePlate: string;
+  revenue: number;
+  expenses: number;
+  netROI: number; // net profit (revenue - expenses)
+  roiPercent: number; // ROI percentage relative to acquisition cost
 }
 
 @Injectable()
@@ -223,7 +227,11 @@ export class AnalyticsService {
     const [vehicles, revenueRows, fuelRows, maintenanceRows] =
       await Promise.all([
         this.prisma.vehicle.findMany({
-          select: { id: true, acquisitionCost: true },
+          select: {
+            id: true,
+            licensePlate: true,
+            acquisitionCost: true,
+          },
         }),
         this.prisma.$queryRaw<RawVehicleSum[]>`
         SELECT "vehicleId" AS vehicle_id, COALESCE(SUM("revenue"), 0) AS total
@@ -259,14 +267,22 @@ export class AnalyticsService {
         const revenue = revenueMap.get(v.id) ?? 0;
         const fuel = fuelMap.get(v.id) ?? 0;
         const maintenance = maintenanceMap.get(v.id) ?? 0;
-        const netProfit = revenue - fuel - maintenance;
-        const roi =
+        const expenses = fuel + maintenance;
+        const netProfit = revenue - expenses;
+        const roiPercent =
           v.acquisitionCost === 0
             ? 0
             : Number(((netProfit / v.acquisitionCost) * 100).toFixed(2));
-        return { vehicleId: v.id, roi };
+        return {
+          vehicleId: v.id,
+          licensePlate: v.licensePlate,
+          revenue,
+          expenses,
+          netROI: netProfit,
+          roiPercent,
+        };
       })
-      .sort((a, b) => b.roi - a.roi);
+      .sort((a, b) => b.roiPercent - a.roiPercent);
 
     await this.redis.set(cacheKey, summary, 120); // 2-min TTL — expensive computation
     return summary;

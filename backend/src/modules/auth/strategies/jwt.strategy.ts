@@ -2,8 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
 import { JwtPayload } from '../auth.service';
+
+// Extracts the access token from HttpOnly cookies, falling back to Authorization header.
+const accessTokenExtractor = (req: Request): string | null => {
+  const rawCookie = req.headers?.cookie;
+  if (!rawCookie) return null;
+
+  const tokenCookie = rawCookie
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith('access_token='));
+
+  if (!tokenCookie) return null;
+  const [, value] = tokenCookie.split('=');
+  return value ? decodeURIComponent(value) : null;
+};
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -12,7 +28,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly usersService: UsersService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        accessTokenExtractor,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey:
         configService.get<string>('JWT_SECRET') ?? 'fallback-dev-secret',

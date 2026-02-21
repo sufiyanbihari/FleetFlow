@@ -1,18 +1,19 @@
-import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, OnGatewayInit } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { OnEvent } from '@nestjs/event-emitter';
-import { Logger, OnModuleInit } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
 @WebSocketGateway({
   cors: {
-    // In production, restrict to your actual frontend origin
-    origin: process.env['FRONTEND_URL'] ?? 'http://localhost:3001',
+    origin: process.env['FRONTEND_URL']
+      ? [process.env['FRONTEND_URL'], 'http://localhost:3000']
+      : ['http://localhost:3000', 'http://localhost:3001'],
     credentials: true,
   },
 })
-export class FleetGateway implements OnModuleInit {
+export class FleetGateway implements OnGatewayInit {
   @WebSocketServer()
   server!: Server;
 
@@ -21,15 +22,26 @@ export class FleetGateway implements OnModuleInit {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
-  onModuleInit() {
+  afterInit(server: Server) {
     // Validate JWT on every socket connection attempt
-    this.server.use((socket: Socket, next) => {
+    server.use((socket: Socket, next) => {
       try {
-        const token =
+        let token =
           (socket.handshake.auth as Record<string, string>)?.['token'] ??
           socket.handshake.headers?.['authorization']?.split(' ')[1];
+
+        // Fallback to cookie if neither auth.token nor Authorization header are present
+        if (!token && socket.handshake.headers.cookie) {
+          const cookieVal = socket.handshake.headers.cookie
+            .split('; ')
+            .find((c) => c.startsWith('access_token='))
+            ?.split('=')[1];
+          if (cookieVal) {
+            token = cookieVal;
+          }
+        }
 
         if (!token) {
           this.logger.warn(
@@ -61,19 +73,19 @@ export class FleetGateway implements OnModuleInit {
   // ── Trip Lifecycle Events ──────────────────────────────────────────────────
 
   @OnEvent('trip.dispatched')
-  handleTripDispatched(payload: { id: string; [key: string]: unknown }) {
+  handleTripDispatched(payload: { id: string;[key: string]: unknown }) {
     this.logger.log(`Broadcasting trip.dispatched: ${payload.id}`);
     this.server.emit('trip.dispatched', payload);
   }
 
   @OnEvent('trip.completed')
-  handleTripCompleted(payload: { id: string; [key: string]: unknown }) {
+  handleTripCompleted(payload: { id: string;[key: string]: unknown }) {
     this.logger.log(`Broadcasting trip.completed: ${payload.id}`);
     this.server.emit('trip.completed', payload);
   }
 
   @OnEvent('trip.cancelled')
-  handleTripCancelled(payload: { id: string; [key: string]: unknown }) {
+  handleTripCancelled(payload: { id: string;[key: string]: unknown }) {
     this.logger.log(`Broadcasting trip.cancelled: ${payload.id}`);
     this.server.emit('trip.cancelled', payload);
   }
@@ -81,7 +93,7 @@ export class FleetGateway implements OnModuleInit {
   // ── Maintenance & Vehicle Events ───────────────────────────────────────────
 
   @OnEvent('vehicle.updated')
-  handleVehicleUpdated(payload: { id: string; [key: string]: unknown }) {
+  handleVehicleUpdated(payload: { id: string;[key: string]: unknown }) {
     this.server.emit('vehicle.updated', payload);
   }
 
@@ -104,12 +116,12 @@ export class FleetGateway implements OnModuleInit {
   // ── Fuel & Driver Events ───────────────────────────────────────────────────
 
   @OnEvent('fuel.logged')
-  handleFuelLogged(payload: { vehicleId: string; [key: string]: unknown }) {
+  handleFuelLogged(payload: { vehicleId: string;[key: string]: unknown }) {
     this.server.emit('fuel.logged', payload);
   }
 
   @OnEvent('driver.suspended')
-  handleDriverSuspended(payload: { id: string; [key: string]: unknown }) {
+  handleDriverSuspended(payload: { id: string;[key: string]: unknown }) {
     this.server.emit('driver.suspended', payload);
   }
 }

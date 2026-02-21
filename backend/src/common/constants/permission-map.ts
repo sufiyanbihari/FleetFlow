@@ -28,7 +28,7 @@ export interface PermissionConfig {
   requiresOwnership?: boolean;
 }
 
-export const POLICY_VERSION = 'v1';
+export const POLICY_VERSION = 'v2';
 
 /**
  * Maps resource:action → PermissionConfig.
@@ -42,16 +42,36 @@ export const PERMISSION_MAP: Partial<
     complete: { minimumRole: UserRole.DISPATCHER, requiresOwnership: true }, // driver completes own trip
     cancel: { minimumRole: UserRole.MANAGER, requiresOwnership: false }, // managers cancel any trip
     dispatch: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+    read: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+    view: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+  },
+  vehicles: {
+    create: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    update: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    delete: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    read: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false }, // dispatchers need catalog visibility
+    view: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+  },
+  drivers: {
+    create: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    update: { minimumRole: UserRole.SAFETY, requiresOwnership: false }, // safety officers manage compliance & status
+    delete: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    read: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+    view: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
   },
   maintenance: {
-    create: { minimumRole: UserRole.SAFETY, requiresOwnership: false },
+    create: { minimumRole: UserRole.SAFETY, requiresOwnership: false }, // putting a vehicle into shop
     complete: { minimumRole: UserRole.SAFETY, requiresOwnership: false },
+    read: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false }, // dispatch needs visibility to filter out in-shop assets
   },
   finance: {
     create: { minimumRole: UserRole.FINANCE, requiresOwnership: false },
+    read: { minimumRole: UserRole.FINANCE, requiresOwnership: false },
+    view: { minimumRole: UserRole.FINANCE, requiresOwnership: false },
   },
   analytics: {
-    view: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
-    read: { minimumRole: UserRole.MANAGER, requiresOwnership: false },
+    // Allow all authenticated roles to view high-level dashboard metrics
+    view: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
+    read: { minimumRole: UserRole.DISPATCHER, requiresOwnership: false },
   },
 };

@@ -73,6 +73,7 @@ export class MaintenanceService {
       await Promise.all([
         this.redis.del('cache:v1:analytics:dashboard'),
         this.redis.del('cache:v1:analytics:utilization'),
+        this.redis.del('cache:v1:analytics:fleet-roi'),
         this.redis.del(`cache:v1:analytics:vehicle:${vehicleId}`),
       ]);
 

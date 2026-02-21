@@ -6,6 +6,21 @@ import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
 import { JwtPayload } from '../auth.service';
 
+// Extracts the refresh token from HttpOnly cookies, falling back to Authorization header.
+const refreshTokenExtractor = (req: Request): string | null => {
+  const rawCookie = req.headers?.cookie;
+  if (!rawCookie) return null;
+
+  const tokenCookie = rawCookie
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith('refresh_token='));
+
+  if (!tokenCookie) return null;
+  const [, value] = tokenCookie.split('=');
+  return value ? decodeURIComponent(value) : null;
+};
+
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
   Strategy,
@@ -16,7 +31,10 @@ export class JwtRefreshStrategy extends PassportStrategy(
     private readonly usersService: UsersService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        refreshTokenExtractor,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey:
         configService.get<string>('JWT_REFRESH_SECRET') ??
@@ -26,7 +44,8 @@ export class JwtRefreshStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: JwtPayload) {
-    const refreshToken = req.headers.authorization?.split(' ')[1];
+    const refreshToken =
+      refreshTokenExtractor(req) ?? req.headers.authorization?.split(' ')[1];
     if (!refreshToken) throw new ForbiddenException('Refresh token missing');
     const user = await this.usersService.findById(payload.sub);
     if (!user?.refreshTokenHash)
