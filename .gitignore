@@ -1,0 +1,6 @@
+# Root workspace
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Each workspace has its own .gitignore for their specific ignores
